@@ -9,7 +9,7 @@
     "start": "node bot.js",
     "start:local": "node --env-file=.env bot.js",
     "test": "node --test",
-    "check": "node --check bot.js && node --check discord-commands.js && node --check owo-blackjack-parser.js && node --check blackjack-advisor.js && node --check blackjack-session.js"
+    "check": "node --check bot.js && node --check discord-commands.js && node --check owo-blackjack-parser.js && node --check finite-deck-solver.js && node --check blackjack-advisor.js && node --check blackjack-session.js"
   },
   "engines": {
     "node": ">=20.6.0"

@@ -4,17 +4,18 @@ const { ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.j
 
 const OWO_COMMAND = {
   name: 'owo',
-  description: 'Activate the OwO blackjack companion in this channel',
+  description: 'Control or inspect the read-only OwO blackjack advisor',
   options: [
     {
       type: ApplicationCommandOptionType.String,
       name: 'action',
-      description: 'Start, stop, or check the companion in this channel',
+      description: 'Start, stop, check, or view statistics for the companion',
       required: false,
       choices: [
         { name: 'start', value: 'start' },
         { name: 'stop', value: 'stop' },
         { name: 'status', value: 'status' },
+        { name: 'stats', value: 'stats' },
       ],
     },
   ],
@@ -75,7 +76,7 @@ async function handleOwOCommand(interaction, { sessions, liveEnabled, logger = c
     }
 
     if (!interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild)) {
-      await reply(interaction, 'Only a server manager can start or stop the companion.');
+      await reply(interaction, 'Only a server manager can use the companion controls.');
       return true;
     }
 
@@ -90,10 +91,32 @@ async function handleOwOCommand(interaction, { sessions, liveEnabled, logger = c
       return true;
     }
 
+    if (action === 'stats') {
+      const stats = sessions.getStats();
+      const rate = (value) => (Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : 'not recorded');
+      const byDealer = Object.entries(stats.byDealerUpcard)
+        .map(([dealer, bucket]) => `${dealer}: ${bucket.wins}W-${bucket.losses}L-${bucket.pushes}P`)
+        .join(' · ') || 'none';
+      const byType = Object.entries(stats.byHandType)
+        .map(([type, bucket]) => `${type}: ${bucket.wins}W-${bucket.losses}L-${bucket.pushes}P`)
+        .join(' · ') || 'none';
+      const lines = [
+        `Hands: **${stats.hands}** · **${stats.wins}W-${stats.losses}L-${stats.pushes}P**`,
+        `Win rate: **${rate(stats.winRate)}**`,
+        `HIT recommendations: **${stats.hitRecommendations}** · STAND: **${stats.standRecommendations}**`,
+        `Recommendation accuracy: **${rate(stats.recommendationAccuracy)}** (${stats.recommendationAccuracySamples} scored)`,
+        `By dealer upcard: ${byDealer}`,
+        `By hand type: ${byType}`,
+        '-# Accuracy is reported only when a caller explicitly scores the recommendation; a winning hand does not automatically make the decision correct.',
+      ];
+      await reply(interaction, lines.join('\n'));
+      return true;
+    }
+
     if (!liveEnabled) {
       await reply(
         interaction,
-        'Live OwO tracking is disabled until the embed-format, Message Content Intent, and OwO permission checks are verified. Set `ALLOW_LIVE_OWO=true` after those checks and restart the bot.'
+        'Live OwO tracking is disabled until the embed format and Message Content Intent are verified. OwO permits third-party bots; this companion remains read-only. Set `ALLOW_LIVE_OWO=true` after those checks and restart the bot.'
       );
       return true;
     }
@@ -133,7 +156,7 @@ async function handleOwOCommand(interaction, { sessions, liveEnabled, logger = c
       return true;
     }
 
-    await reply(interaction, 'Unknown action. Use `/owo start`, `/owo stop`, or `/owo status`.');
+    await reply(interaction, 'Unknown action. Use `/owo start`, `/owo stop`, `/owo status`, or `/owo stats`.');
     return true;
   } catch (error) {
     logger.error?.('[commands] /owo failed:', error.message);

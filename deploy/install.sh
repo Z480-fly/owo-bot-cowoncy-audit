@@ -105,7 +105,7 @@ Installation finished. The bot is in setup mode because ALLOW_LIVE_OWO is false.
 Next:
   1. Invite the bot with the bot + applications.commands scopes and permissions 68608.
   2. In your server, run /owo and confirm it responds (it will say live tracking is gated).
-  3. Complete the live-format, Message Content Intent, and OwO-permission checks in README.md.
+  3. Complete the live-format and Message Content Intent checks in README.md. Keep the companion read-only.
   4. Only then run:
        sudo nano /etc/owo-blackjack-companion.env
        # set ALLOW_LIVE_OWO=true

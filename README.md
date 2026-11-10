@@ -2,9 +2,82 @@
 
 **Phase 8 — local MVP with /owo.** This is a read-only Discord companion that follows the publicly visible OwO blackjack embed, applies the existing exact finite-deck solver, and edits one advice message as the hand changes. It does **not** play for you, react, bet, or send anything to OwO.
 
-> **Deployment gate:** do not use this with live OwO or a public server until the actual embed format is verified, Message Content Intent is enabled, and OwO has clarified that a read-only assistant is permitted. The bot enforces an explicit `ALLOW_LIVE_OWO=true` acknowledgement, but that flag is not a substitute for OwO's permission.
+> **Deployment gate:** do not use this with live OwO or a public server until the actual embed format is verified and Message Content Intent is enabled. OwO permits third-party bots (user-confirmed); this companion remains strictly read-only and does not automate gambling actions. The bot enforces an explicit `ALLOW_LIVE_OWO=true` acknowledgement for the remaining live-format check.
 
 **Phase 8 files:** `bot.js`, `discord-commands.js`, `owo-blackjack-parser.js`, `blackjack-session.js`, `blackjack-advisor.js`, `env.example`, and the tests under `test/`.
+
+**Mechanics evidence:** [`BLACKJACK-MECHANICS-RESEARCH.md`](BLACKJACK-MECHANICS-RESEARCH.md) independently verifies the published deck, dealer, payout, and solver assumptions with exact source line references.
+
+## Individual hand advisor
+
+`blackjack-advisor.js` now has two entry points over the same exact finite-deck solver: a one-shot CLI/JSON interface for manual hands, and the existing Discord formatter. It does not use a separate basic-strategy table.
+
+### Quick use
+
+```bash
+node blackjack-advisor.js --dealer 8 --cards 10,6
+node blackjack-advisor.js --dealer 8 --cards 10,6 --json
+node blackjack-advisor.js --dealer 8 --cards 10,6 --observed 2,3
+```
+
+The text response includes the total, hard/soft type, recommendation, real HIT/STAND EVs, bust probability, dealer final-outcome probabilities, remaining composition, and the reason for the recommendation. `--json` returns the same values machine-readably.
+
+### Rules are explicit
+
+The API does not silently fill in unknown rules. At minimum, callers must supply the two core rule decisions:
+
+```js
+rules: { dealerHitsSoft17: false, deckCount: 1 }
+```
+
+Omitted optional fields use the published, source-verified OwO values and are echoed in the result: `deckSize: 51`, `bothBust: 'push'`, `blackjackPays: '1:1'`, `doubleAllowed: false`, `splitAllowed: false`, plus the source commit. The result also lists which fields were defaulted in `rules.defaulted`, so nothing is hidden. Passing any of those fields explicitly as `null` makes the result pending. A differing value makes it unsupported. The full verified constant is also available:
+
+```js
+const { VERIFIED_RULES } = require('./blackjack-advisor');
+```
+
+If a core rule is missing or explicitly unknown, the result is `confidence: "pending"`, `recommendation: null`, and both EVs are `null`. If a rule differs from the solver's implemented rules, the result is `confidence: "unsupported"`; no guessed EV is returned. The CLI defaults to the verified rules because this is an OwO-specific tool, and it prints that choice in the output.
+
+### JSON and programmatic use
+
+```js
+const { analyzeHand, VERIFIED_RULES } = require('./blackjack-advisor');
+
+const result = analyzeHand({
+  dealer: '8',
+  playerCards: ['10', '6'],
+  observedCards: [],
+  rules: VERIFIED_RULES,
+});
+
+console.log(result.recommendation);
+console.log(result.expectedValues);
+```
+
+Cards may be `A`, `2`-`9`, `10`, `T`, `J`, `Q`, or `K`, optionally followed by a suit (`s`, `c`, `d`, `h`). The published deck omits `7h`, so that card is rejected. Include suits when you want exact physical-duplicate detection; rank-only input still enforces the deck's rank limits (for example, four aces or three sevens).
+
+`observedCards` means **additional known cards removed during the current hand**. OwO creates a fresh 51-card deck for every game, so cards from a previous hand must not be carried into a new analysis. The tracker resets them automatically.
+
+### Manual session tracker and statistics
+
+```js
+const { BlackjackTableTracker } = require('./blackjack-session');
+const { VERIFIED_RULES } = require('./blackjack-advisor');
+
+const tracker = new BlackjackTableTracker({ rules: VERIFIED_RULES });
+tracker.beginHand({ dealer: '8', playerCards: ['10s', '6h'] });
+tracker.addPlayerCard('2c');
+tracker.correctCard({ zone: 'player', index: 2, card: '3c' });
+tracker.recordResult({ outcome: 'win', recommendationCorrect: true });
+console.log(tracker.getStats());
+console.log(tracker.getHistory());
+```
+
+The tracker stores individual visible cards, rejects duplicate physical registration, supports corrected recognitions, keeps prior hands in memory, and never adds a hidden dealer hole. `getStats()` reports wins/losses/pushes, win rate, HIT/STAND recommendation counts, results by dealer upcard, results by hard/soft hand type, follow rate, and recommendation accuracy.
+
+Win rate and recommendation accuracy are intentionally separate. Accuracy is populated only when the caller explicitly supplies `recommendationCorrect`; a winning hand is not automatically treated as a correct decision. Discord sessions record outcomes automatically but leave accuracy unscored.
+
+`/owo stats` shows the same aggregate statistics for the running process.
 
 The pre-existing audit report follows below this section.
 
@@ -13,14 +86,14 @@ The pre-existing audit report follows below this section.
 ## 1. What the bot does
 
 - Registers a `/owo` slash command in every server it joins.
-- `/owo` activates tracking in the current channel; `/owo stop` and `/owo status` control it.
+- `/owo` activates tracking in the current channel; `/owo stop`, `/owo status`, and `/owo stats` control or inspect it.
 - Detects one OwO blackjack embed in a dedicated source channel.
 - Parses visible player cards and the dealer's visible upcard.
 - Recalculates exact composition-dependent HIT/STAND expected values after each OwO message edit.
 - Edits one advice message instead of sending a new message for every card.
 - Displays `HIT` or `STAND`, both EV values, the hand total, and a link to the OwO message.
 - Stops tracking ended hands, deleted messages, idle games, unsupported formats, and ambiguous games.
-- Keeps sessions in memory only. It does not store gameplay history.
+- Keeps current sessions, completed-hand history, and statistics in memory only; there is no persistent store.
 
 It never reads a dealer hole card, never guesses an owner, and never sends a command, reaction, button click, or bet to OwO.
 
@@ -159,7 +232,7 @@ Set `ALLOW_LIVE_OWO=true` in `/etc/owo-blackjack-companion.env` only after the d
 ## 5. Playing on iPhone
 
 1. Open the private server in the Discord iPhone app.
-2. Go to the dedicated channel and type `/owo`. Press send; the default action is **start**. You can also use `/owo status` or `/owo stop`.
+2. Go to the dedicated channel and type `/owo`. Press send; the default action is **start**. You can also use `/owo status`, `/owo stats`, or `/owo stop`.
 3. Start a hand normally with `owo bj <bet>`.
 4. The companion posts one advice message beside the OwO embed. You can tap **Open the OwO hand** to jump to the game.
 5. React manually with OwO's **👊 hit** or **🛑 stand** reaction on OwO's message. The companion never reacts for you.
@@ -181,13 +254,12 @@ There is no separate iPhone app and no card-entry screen. The advice is a normal
 
 ## 7. Deployment gate
 
-Do not set `ALLOW_LIVE_OWO=true`, and do not invite this bot to a public server, until all three are true:
+Do not set `ALLOW_LIVE_OWO=true`, and do not invite this bot to a public server, until both are true:
 
 1. You have captured a real OwO hand in the test channel and confirmed its embed matches the parser's expected fields and card emoji names. If it differs, stop and update the parser; do not let it guess.
 2. Message Content Intent is enabled for the application and the bot can read OwO embeds in the source channel.
-3. OwO support/ownership has clarified that a **read-only** assistant that never sends commands or reactions is permitted. The bot's flag is an acknowledgement of your gate decision, not permission itself.
 
-If OwO says no, do not deploy. The safe fallback is a manual calculator, not a self-bot or an automated player.
+Third-party bot permission is **not** an open general blocker: you confirmed OwO permits third-party bots. That is separate from permission for automated gambling actions. This companion never places a bet, sends an OwO command, reacts, or clicks a component; keep it that way. If you later add any action that affects OwO, stop and obtain separate authorization before deploying it.
 
 ## 8. Tests
 
@@ -198,12 +270,18 @@ npm test
 The suite uses Node's built-in test runner and the installed `discord.js` package; it does not need a token or a live Discord connection. It covers:
 
 - exact-known `10,6 vs 9` EV values;
-- soft/hard totals, four aces, three sevens, and busts;
+- hard 16 vs 8, hard 15 vs 10, soft 17 vs 8, ace valuation, and multiple-card hands through the manual interface;
+- observed-card depletion, duplicate-card rejection, corrected card recognition, and tracker reset between hands;
+- pending/unsupported rules with no fabricated EV, invalid cards, missing cards, and impossible compositions;
+- CLI text/JSON output and non-zero error statuses;
+- independent 51-card identity composition, fresh-deck reset, within-hand depletion, and no cross-game contamination;
+- independent hidden-dealer-hole distribution, soft/hard totals, four aces, three sevens, and busts;
+- both-bust settlement and 51-card versus 52-card EV differences;
 - hidden player cards and hidden dealer holes;
 - unknown emoji, format drift, total mismatches, multiple embeds, and 7♥ rules mismatch;
-- duplicate events, missed edits, stale edits, ended hands, ambiguity, deletion, and expiry;
+- duplicate events, missed edits, stale edits, ended hands, ambiguity, deletion, expiry, statistics, and session history;
 - one-advice-message upsert behavior;
-- `/owo` command shape, gate refusal, permission checks, runtime channel activation, and stop/status behavior.
+- `/owo` command shape, gate refusal, permission checks, runtime channel activation, stop/status, and stats behavior.
 
 The existing Phase 7 audit remains a separate exact-solver regression:
 
@@ -228,9 +306,12 @@ node phase7-audit.js --states 100000
 ## 10. Limitations
 
 - The live OwO format was not verified in this workspace. The parser is based on the published source at commit `9aec92b…` and synthetic regression fixtures.
-- OwO policy permission is unresolved; this is a deployment gate.
-- The model assumes the published 51-card deck, both-bust push, no 3:2 natural, dealer stands on soft 17, and hit/stand only. If live OwO differs, the recommendation may be wrong and the parser should reject the hand.
+- Third-party bot permission is user-confirmed and is not a general blocker. Automated gambling actions are explicitly out of scope; the companion remains read-only.
+- The model assumes the published 51-card deck, both-bust push, no 3:2 natural, dealer stands on soft 17, and hit/stand only. If live OwO differs, the recommendation may be wrong and the parser should reject the hand. See [`BLACKJACK-MECHANICS-RESEARCH.md`](BLACKJACK-MECHANICS-RESEARCH.md) for confirmed versus unconfirmed mechanics.
 - EV is an expected value, not a guarantee. A hand can lose the full stake.
+- The manual tracker, Discord history, and statistics are memory-only and are lost when the process exits.
+- Recommendation accuracy is only available when a caller explicitly scores the decision. The automatic Discord path records wins/losses/pushes but cannot know whether an alternative action would have won.
+- The one-shot CLI does not persist a session between commands. Use `BlackjackTableTracker` for remembered hands and statistics.
 - The bot does not see ephemeral messages or DMs between you and OwO.
 
 ---

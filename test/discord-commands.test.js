@@ -58,12 +58,12 @@ function makeInteraction({
   return { interaction, replies };
 }
 
-test('registers a single /owo command with start, stop, and status choices', () => {
+test('registers a single /owo command with control and stats choices', () => {
   assert.equal(OWO_COMMAND.name, 'owo');
   assert.equal(OWO_COMMAND.options[0].name, 'action');
   assert.deepEqual(
     OWO_COMMAND.options[0].choices.map((choice) => choice.value),
-    ['start', 'stop', 'status']
+    ['start', 'stop', 'status', 'stats']
   );
 });
 
@@ -190,6 +190,28 @@ test('stops an activated channel and reports status', async () => {
     logger: { error() {} },
   });
   assert.match(status.replies[0].content, /inactive/);
+});
+
+test('reports separate win rate and recommendation accuracy', async () => {
+  const sessions = makeSessions();
+  sessions.stats.record({
+    outcome: 'win',
+    recommendation: 'HIT',
+    dealer: '8',
+    handType: 'hard',
+    recommendationCorrect: null,
+  });
+  const stats = makeInteraction({ action: 'stats' });
+  await handleOwOCommand(stats.interaction, {
+    sessions,
+    liveEnabled: false,
+    logger: { error() {} },
+  });
+  const content = stats.replies[0].content;
+  assert.match(content, /Hands: \*\*1\*\*/);
+  assert.match(content, /Win rate: \*\*100\.0%\*\*/);
+  assert.match(content, /Recommendation accuracy: \*\*not recorded\*\*/);
+  assert.match(content, /By dealer upcard: 8: 1W-0L-0P/);
 });
 
 test('ignores unrelated interactions', async () => {

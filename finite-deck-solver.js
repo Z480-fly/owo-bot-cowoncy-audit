@@ -325,7 +325,7 @@ function initialStates(baseCounts) {
   return out;
 }
 
-function evaluateVisibleWithContext(ctx, playerRanks, upRank) {
+function evaluateVisibleWithContext(ctx, playerRanks, upRank, observedRanks = []) {
   const counts = ctx.variant.counts.slice();
   let pv = { total: 0, soft: false };
   for (const rank of playerRanks) {
@@ -337,6 +337,11 @@ function evaluateVisibleWithContext(ctx, playerRanks, upRank) {
   if (!Number.isInteger(upRank) || upRank < 0 || upRank > 9) throw new Error(`invalid upcard rank: ${upRank}`);
   if (counts[upRank] <= 0) throw new Error(`too many cards of upcard rank ${upRank}`);
   counts[upRank]--;
+  for (const rank of observedRanks) {
+    if (!Number.isInteger(rank) || rank < 0 || rank > 9) throw new Error(`invalid observed rank: ${rank}`);
+    if (counts[rank] <= 0) throw new Error(`too many cards of observed rank ${rank}`);
+    counts[rank]--;
+  }
   const n = sumCounts(counts);
   const remCode = encodeCounts(counts);
   if (pv.total > 21) {
@@ -356,13 +361,71 @@ function evaluateVisibleWithContext(ctx, playerRanks, upRank) {
   };
 }
 
-function createVisibleEvaluator(variantKey) {
-  const ctx = makeContext(variantKey);
-  return (playerRanks, upRank) => evaluateVisibleWithContext(ctx, playerRanks, upRank);
+/*
+ * Diagnostic view of the exact remaining rank composition after removing the
+ * visible player cards, the dealer upcard, and any additional observed cards.
+ * The dealer hole remains in this vector because it is unknown to the player.
+ * This does not change EV logic; it exposes the state the evaluator already
+ * uses so the tests can verify depletion and deck-reset behavior directly.
+ */
+function remainingCounts(variantKey, playerRanks, upRank, observedRanks = []) {
+  const variant = VARIANTS[variantKey];
+  if (!variant) throw new Error(`unknown variant: ${variantKey}`);
+  if (!Array.isArray(playerRanks) || playerRanks.length < 2) {
+    throw new Error('at least two player cards are required');
+  }
+
+  const counts = variant.counts.slice();
+  let hand = { total: 0, soft: false };
+  for (const rank of playerRanks) {
+    if (!Number.isInteger(rank) || rank < 0 || rank > 9) {
+      throw new Error(`invalid player rank: ${rank}`);
+    }
+    if (counts[rank] <= 0) throw new Error(`too many cards of rank ${rank}`);
+    counts[rank]--;
+    hand = addRank(hand.total, hand.soft, rank);
+  }
+
+  if (!Number.isInteger(upRank) || upRank < 0 || upRank > 9) {
+    throw new Error(`invalid upcard rank: ${upRank}`);
+  }
+  if (counts[upRank] <= 0) throw new Error(`too many cards of upcard rank ${upRank}`);
+  counts[upRank]--;
+
+  for (const rank of observedRanks) {
+    if (!Number.isInteger(rank) || rank < 0 || rank > 9) {
+      throw new Error(`invalid observed rank: ${rank}`);
+    }
+    if (counts[rank] <= 0) throw new Error(`too many cards of observed rank ${rank}`);
+    counts[rank]--;
+  }
+
+  return {
+    counts: counts.slice(),
+    n: sumCounts(counts),
+    remCode: encodeCounts(counts),
+    total: hand.total,
+    soft: hand.soft,
+  };
 }
 
-function evaluateVisibleState(variantKey, playerRanks, upRank) {
-  return createVisibleEvaluator(variantKey)(playerRanks, upRank);
+/* Exact dealer final-total distribution for the visible player state. */
+function dealerOutcomeDistribution(variantKey, playerRanks, upRank, observedRanks = []) {
+  const visible = remainingCounts(variantKey, playerRanks, upRank, observedRanks);
+  const ctx = makeContext(variantKey);
+  return Array.from(
+    dealerInitial(ctx, visible.remCode, upRank, visible.counts, visible.n)
+  );
+}
+
+function createVisibleEvaluator(variantKey) {
+  const ctx = makeContext(variantKey);
+  return (playerRanks, upRank, observedRanks = []) =>
+    evaluateVisibleWithContext(ctx, playerRanks, upRank, observedRanks);
+}
+
+function evaluateVisibleState(variantKey, playerRanks, upRank, observedRanks = []) {
+  return createVisibleEvaluator(variantKey)(playerRanks, upRank, observedRanks);
 }
 
 function runVariant(variantKey, options = {}) {
@@ -760,6 +823,8 @@ module.exports = {
   encodeCounts,
   decodeCounts,
   basicAction,
+  remainingCounts,
+  dealerOutcomeDistribution,
   createVisibleEvaluator,
   evaluateVisibleState,
   runVariant,
