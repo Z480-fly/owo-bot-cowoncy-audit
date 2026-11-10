@@ -8,7 +8,7 @@
 
 **Method:** fresh clone of the pinned public commit, line-by-line review, and independent offline calculations. No live OwO account, server, Discord message, or production database was used.
 
-> **Evidence boundary:** “Confirmed” below means confirmed in the published source. It does not mean confirmed against the live OwO service. `bj-helper.js` was requested for review but does not exist in this source snapshot or in this repository.
+> **Evidence boundary:** “Confirmed” below means confirmed in the published source. It does not mean confirmed against the live OwO service. The pinned OwO source has no `bj-helper.js`; the repository's `bj-helper.js` is a separate offline wrapper added later and is not part of the audited OwO source.
 
 ## 1. Confirmed findings
 
@@ -235,7 +235,7 @@ If live OwO ever uses a different suit-specific deck, the rank-count model would
 
 ### 6.4 `bj-helper.js`
 
-There is no `bj-helper.js` in the pinned source or in this repository. The relevant implementation is split between `blackjack.js` and `blackjackUtil.js`. Any reference to `bj-helper.js` should be treated as a naming error, not as an inspected module.
+There is no `bj-helper.js` in the pinned OwO source. OwO's relevant implementation is split between `blackjack.js` and `blackjackUtil.js`. The repository separately includes an offline `bj-helper.js` CLI added after this research; it calls `createVisibleEvaluator('51-push')` from `finite-deck-solver.js` and is not evidence of live OwO behavior.
 
 ## 7. Tests added
 
