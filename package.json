@@ -1,0 +1,20 @@
+{
+  "name": "owo-blackjack-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Discord companion that follows OwO blackjack messages and recommends HIT or STAND.",
+  "main": "bot.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node bot.js",
+    "start:local": "node --env-file=.env bot.js",
+    "test": "node --test",
+    "check": "node --check bot.js && node --check discord-commands.js && node --check owo-blackjack-parser.js && node --check blackjack-advisor.js && node --check blackjack-session.js"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}
